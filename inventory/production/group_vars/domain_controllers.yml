@@ -1,0 +1,25 @@
+---
+# Domain Controller specific variables
+dc_domain: "example.internal"
+dc_realm: "EXAMPLE.INTERNAL"
+dc_netbios: "EXAMPLE"
+dc_admin_password: "{{ vault_dc_admin_password }}"
+dc_dns_forwarders:
+  - 8.8.8.8
+  - 8.8.4.4
+dc_dhcp_ranges:
+  - subnet: "192.168.10.0"
+    netmask: "255.255.255.0"
+    range_start: "192.168.10.100"
+    range_end: "192.168.10.200"
+    gateway: "192.168.10.1"
+    dns_servers:
+      - "192.168.10.10"
+      - "192.168.10.11"
+dc_samba_version: "4.18"
+dc_kdc_enabled: true
+dc_ntp_enabled: true
+dc_dns_enabled: true
+dc_dhcp_enabled: false
+dc_sync_interval: 15
+dc_fsmo_roles_holder: "dc01"
