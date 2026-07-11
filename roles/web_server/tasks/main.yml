@@ -1,0 +1,161 @@
+---
+# Web Server role — Nginx + PHP-FPM deployment
+
+- name: Install Nginx web server
+  ansible.builtin.apt:
+    name:
+      - nginx
+      - nginx-common
+      - nginx-core
+    state: present
+  notify: restart nginx
+
+- name: Install PHP and PHP-FPM
+  ansible.builtin.apt:
+    name:
+      - "php{{ php_version }}"
+      - "php{{ php_version }}-fpm"
+      - "php{{ php_version }}-cli"
+      - "php{{ php_version }}-common"
+      - "php{{ php_version }}-curl"
+      - "php{{ php_version }}-gd"
+      - "php{{ php_version }}-intl"
+      - "php{{ php_version }}-mbstring"
+      - "php{{ php_version }}-mysqlnd"
+      - "php{{ php_version }}-opcache"
+      - "php{{ php_version }}-readline"
+      - "php{{ php_version }}-xml"
+      - "php{{ php_version }}-zip"
+      - "php{{ php_version }}-bcmath"
+      - "php{{ php_version }}-soap"
+      - "php{{ php_version }}-redis"
+    state: present
+  notify: restart php-fpm
+
+- name: Create web root directory
+  ansible.builtin.file:
+    path: "{{ web_root }}"
+    state: directory
+    owner: "{{ web_user }}"
+    group: "{{ web_group }}"
+    mode: "0755"
+
+- name: Create application deployment directory
+  ansible.builtin.file:
+    path: "{{ app_deploy_path }}"
+    state: directory
+    owner: "{{ web_user }}"
+    group: "{{ web_group }}"
+    mode: "0755"
+
+- name: Remove default Nginx site
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/nginx/sites-enabled/default
+    - /etc/nginx/sites-available/default
+
+- name: Deploy Nginx main configuration
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: Deploy Nginx site configuration for HTTP
+  ansible.builtin.template:
+    src: nginx-site-http.conf.j2
+    dest: "/etc/nginx/sites-available/{{ inventory_hostname }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: Enable site configuration
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ inventory_hostname }}.conf"
+    dest: "/etc/nginx/sites-enabled/{{ inventory_hostname }}.conf"
+    state: link
+
+- name: Generate Diffie-Hellman parameters for SSL
+  ansible.builtin.command:
+    cmd: "openssl dhparam -out {{ ssl_dhparam_path }} 2048"
+    creates: "{{ ssl_dhparam_path }}"
+  when: ssl_enabled | default(true)
+
+- name: Configure PHP-FPM pool settings
+  ansible.builtin.lineinfile:
+    path: "/etc/php/{{ php_version }}/fpm/pool.d/www.conf"
+    regexp: "^{{ item.param }}"
+    line: "{{ item.param }} = {{ item.value }}"
+  loop:
+    - { param: "pm.max_children", value: "50" }
+    - { param: "pm.start_servers", value: "5" }
+    - { param: "pm.min_spare_servers", value: "5" }
+    - { param: "pm.max_spare_servers", value: "35" }
+    - { param: "pm.max_requests", value: "500" }
+    - { param: "request_terminate_timeout", value: "300" }
+  notify: restart php-fpm
+
+- name: Configure PHP OPcache
+  ansible.builtin.lineinfile:
+    path: "/etc/php/{{ php_version }}/fpm/conf.d/10-opcache.ini"
+    regexp: "^{{ item.param }}"
+    line: "{{ item.param }} = {{ item.value }}"
+    create: yes
+  loop:
+    - { param: "opcache.enable", value: "1" }
+    - { param: "opcache.memory_consumption", value: "128" }
+    - { param: "opcache.interned_strings_buffer", value: "8" }
+    - { param: "opcache.max_accelerated_files", value: "10000" }
+    - { param: "opcache.revalidate_freq", value: "2" }
+    - { param: "opcache.fast_shutdown", value: "1" }
+  notify: restart php-fpm
+
+- name: Create default PHP info page
+  ansible.builtin.copy:
+    content: "<?php phpinfo(); ?>"
+    dest: "{{ web_root }}/info.php"
+    owner: "{{ web_user }}"
+    group: "{{ web_group }}"
+    mode: "0644"
+
+- name: Create PHP test page
+  ansible.builtin.copy:
+    content: "<h1>{{ inventory_hostname }} - Web Server Active</h1><p>Deployed by Ansible Infrastructure Automation</p>"
+    dest: "{{ web_root }}/index.html"
+    owner: "{{ web_user }}"
+    group: "{{ web_group }}"
+    mode: "0644"
+
+- name: Enable and start Nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: started
+    enabled: yes
+
+- name: Enable and start PHP-FPM
+  ansible.builtin.systemd:
+    name: "php{{ php_version }}-fpm"
+    state: started
+    enabled: yes
+
+- name: Configure UFW for HTTP/HTTPS
+  ansible.builtin.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "{{ http_port | default(80) }}"
+    - "{{ https_port | default(443) }}"
+
+- name: Install Certbot for SSL certificates
+  ansible.builtin.apt:
+    name:
+      - certbot
+      - python3-certbot-nginx
+    state: present
+  when: ssl_enabled | default(true)
