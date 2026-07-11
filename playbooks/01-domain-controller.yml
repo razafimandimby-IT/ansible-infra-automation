@@ -1,0 +1,69 @@
+---
+# ============================================================
+# Domain Controller Deployment
+# ============================================================
+# Deploys and configures Samba Active Directory Domain
+# Controller with DNS, Kerberos KDC, and optional DHCP.
+# ============================================================
+# Usage:
+#   ansible-playbook playbooks/01-domain-controller.yml
+#   ansible-playbook playbooks/01-domain-controller.yml -l dc01
+# ============================================================
+
+- name: "Domain Controller — AD, DNS, KDC Deployment"
+  hosts: domain_controllers
+  gather_facts: yes
+  become: yes
+  roles:
+    - role: domain_controller
+      tags: [domain_controller, ad, samba, dns, dhcp, kdc]
+
+  post_tasks:
+    - name: Verify Samba service status
+      ansible.builtin.systemd:
+        name: samba-ad-dc
+        state: started
+        enabled: yes
+      check_mode: no
+      failed_when: false
+      register: samba_status
+      tags: [verify]
+
+    - name: Display Samba AD DC status
+      ansible.builtin.debug:
+        msg: "Samba AD DC service is {{ 'ACTIVE' if samba_status.status.ActiveState == 'active' else 'INACTIVE' }}"
+      tags: [verify]
+
+    - name: Verify DNS resolution of domain
+      ansible.builtin.command:
+        cmd: "host -t SRV _ldap._tcp.{{ dc_domain }}"
+      changed_when: false
+      register: dns_check
+      ignore_errors: yes
+      tags: [verify]
+
+    - name: Display DNS check results
+      ansible.builtin.debug:
+        var: dns_check.stdout_lines
+      when: dns_check.stdout_lines is defined
+      tags: [verify]
+
+    - name: Verify Kerberos ticket granting
+      ansible.builtin.command:
+        cmd: "kinit administrator@{{ dc_realm }} -k -t /var/lib/samba/private/krb5.keytab"
+      changed_when: false
+      register: kinit_check
+      ignore_errors: yes
+      tags: [verify]
+
+    - name: Display Kerberos verification
+      ansible.builtin.debug:
+        msg: "Kerberos: {{ 'OK' if kinit_check.rc == 0 else 'FAILED' }}"
+      tags: [verify]
+
+  handlers:
+    - name: Restart samba-ad-dc
+      ansible.builtin.systemd:
+        name: samba-ad-dc
+        state: restarted
+        daemon_reload: yes
