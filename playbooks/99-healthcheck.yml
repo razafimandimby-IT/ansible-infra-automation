@@ -1,0 +1,484 @@
+---
+# ============================================================
+# Post-Deployment Health Check & Validation
+# ============================================================
+# Comprehensive system validation including connectivity,
+# service status, disk space, security posture, resource
+# utilization, and compliance reporting.
+# ============================================================
+# Usage:
+#   ansible-playbook playbooks/99-healthcheck.yml
+#   ansible-playbook playbooks/99-healthcheck.yml -v
+#   ansible-playbook playbooks/99-healthcheck.yml --limit web_servers
+# ============================================================
+
+- name: "Health Check — System Validation & Diagnostics"
+  hosts: all
+  gather_facts: yes
+  become: yes
+  vars:
+    health_report_path: "/var/log/healthcheck"
+    disk_threshold_warning: 80
+    disk_threshold_critical: 90
+    memory_threshold_warning: 75
+    memory_threshold_critical: 90
+    load_avg_threshold: 4.0
+
+  tasks:
+    - name: Create health check report directory
+      ansible.builtin.file:
+        path: "{{ health_report_path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [always]
+
+    - name: Get health check timestamp
+      ansible.builtin.command:
+        cmd: date -Iseconds
+      changed_when: false
+      register: check_time
+      tags: [always]
+
+    - name: ==========================================================
+      ansible.builtin.debug:
+        msg: "CONNECTIVITY CHECKS"
+      tags: [connectivity]
+
+    - name: Check basic connectivity via ping
+      ansible.builtin.ping:
+      register: ping_result
+      tags: [connectivity]
+
+    - name: Check DNS resolution
+      ansible.builtin.command:
+        cmd: "nslookup {{ domain_name }}"
+      changed_when: false
+      register: dns_resolution
+      ignore_errors: yes
+      tags: [connectivity]
+
+    - name: Check connectivity to DNS servers
+      ansible.builtin.command:
+        cmd: "ping -c 2 -W 2 {{ item }}"
+      changed_when: false
+      loop: "{{ dns_servers }}"
+      register: dns_ping
+      ignore_errors: yes
+      tags: [connectivity]
+
+    - name: Check NTP synchronization
+      ansible.builtin.command:
+        cmd: "timedatectl show --property=NTP --value"
+      changed_when: false
+      register: ntp_status
+      tags: [connectivity]
+
+    - name: Check NTP time sync accuracy
+      ansible.builtin.command:
+        cmd: "timedatectl show --property=NTPSynchronized --value"
+      changed_when: false
+      register: ntp_sync
+      tags: [connectivity]
+
+    - name: Check gateway connectivity
+      ansible.builtin.shell:
+        cmd: "ip route | awk '/default/ {print $3}' | xargs -I {} ping -c 1 -W 2 {} 2>/dev/null && echo 'OK' || echo 'FAIL'"
+      changed_when: false
+      register: gateway_check
+      ignore_errors: yes
+      tags: [connectivity]
+
+    - name: ==========================================================
+      ansible.builtin.debug:
+        msg: "SERVICE STATUS CHECKS"
+      tags: [services]
+
+    - name: Verify SSH service status
+      ansible.builtin.systemd:
+        name: sshd
+        state: started
+      check_mode: no
+      register: sshd_status
+      failed_when: false
+      tags: [services]
+
+    - name: Verify Cron service status
+      ansible.builtin.systemd:
+        name: cron
+        state: started
+      check_mode: no
+      register: cron_status
+      failed_when: false
+      tags: [services]
+
+    - name: Verify Rsyslog service status
+      ansible.builtin.systemd:
+        name: rsyslog
+        state: started
+      check_mode: no
+      register: rsyslog_status
+      failed_when: false
+      tags: [services]
+
+    - name: Check if Nginx is running (web servers)
+      ansible.builtin.systemd:
+        name: nginx
+        state: started
+      check_mode: no
+      register: nginx_status
+      failed_when: false
+      when: inventory_hostname in groups['web_servers'] | default([])
+      tags: [services]
+
+    - name: Check if PostgreSQL is running (database servers)
+      ansible.builtin.systemd:
+        name: postgresql
+        state: started
+      check_mode: no
+      register: pg_status
+      failed_when: false
+      when: inventory_hostname in groups['database_servers'] | default([])
+      tags: [services]
+
+    - name: Check if Samba AD is running (domain controllers)
+      ansible.builtin.systemd:
+        name: samba-ad-dc
+        state: started
+      check_mode: no
+      register: samba_status
+      failed_when: false
+      when: inventory_hostname in groups['domain_controllers'] | default([])
+      tags: [services]
+
+    - name: ==========================================================
+      ansible.builtin.debug:
+        msg: "DISK SPACE CHECKS"
+      tags: [disk]
+
+    - name: Check disk usage on root partition
+      ansible.builtin.shell:
+        cmd: "df -h / | awk 'NR==2 {print $5}' | tr -d '%'"
+      changed_when: false
+      register: root_disk_usage
+      tags: [disk]
+
+    - name: Alert on high disk usage
+      ansible.builtin.debug:
+        msg:
+          - "DISK USAGE ALERT: Root partition is at {{ root_disk_usage.stdout }}%"
+          - "Warning threshold: {{ disk_threshold_warning }}%"
+          - "Critical threshold: {{ disk_threshold_critical }}%"
+      when: (root_disk_usage.stdout | int) >= disk_threshold_warning
+      tags: [disk]
+
+    - name: Check disk usage for all mounted filesystems
+      ansible.builtin.shell:
+        cmd: "df -h --exclude-type=tmpfs --exclude-type=devtmpfs --exclude-type=overlay | tail -n +2"
+      changed_when: false
+      register: all_disk_usage
+      tags: [disk]
+
+    - name: Check inode usage
+      ansible.builtin.shell:
+        cmd: "df -i / | awk 'NR==2 {print $5}' | tr -d '%'"
+      changed_when: false
+      register: root_inode_usage
+      tags: [disk]
+
+    - name: ==========================================================
+      ansible.builtin.debug:
+        msg: "MEMORY AND RESOURCE CHECKS"
+      tags: [resources]
+
+    - name: Check total memory
+      ansible.builtin.command:
+        cmd: "free -m | awk 'NR==2 {print $2}'"
+      changed_when: false
+      register: total_memory
+      tags: [resources]
+
+    - name: Check used memory percentage
+      ansible.builtin.shell:
+        cmd: "free -m | awk 'NR==2 {printf \"%.0f\", ($3/$2)*100}'"
+      changed_when: false
+      register: used_memory_pct
+      tags: [resources]
+
+    - name: Alert on high memory usage
+      ansible.builtin.debug:
+        msg: "MEMORY USAGE ALERT: {{ used_memory_pct.stdout }}% used (Warning: >{{ memory_threshold_warning }}%)"
+      when: (used_memory_pct.stdout | int) >= memory_threshold_warning
+      tags: [resources]
+
+    - name: Check swap usage
+      ansible.builtin.shell:
+        cmd: "free -m | awk 'NR==3 {printf \"%.0f\", ($3/$2)*100}'"
+      changed_when: false
+      register: swap_usage_pct
+      ignore_errors: yes
+      tags: [resources]
+
+    - name: Check system load average
+      ansible.builtin.shell:
+        cmd: "cat /proc/loadavg | awk '{print $1}'"
+      changed_when: false
+      register: load_avg_1m
+      tags: [resources]
+
+    - name: Alert on high load average
+      ansible.builtin.debug:
+        msg: "HIGH LOAD ALERT: Load average (1m) is {{ load_avg_1m.stdout }} on {{ ansible_facts.processor_vcpus }} CPU cores"
+      when: (load_avg_1m.stdout | float) > load_avg_threshold
+      tags: [resources]
+
+    - name: Check number of running processes
+      ansible.builtin.shell:
+        cmd: "ps aux | wc -l"
+      changed_when: false
+      register: process_count
+      tags: [resources]
+
+    - name: ==========================================================
+      ansible.builtin.debug:
+        msg: "SECURITY STATUS CHECKS"
+      tags: [security]
+
+    - name: Check if UFW firewall is active
+      ansible.builtin.command:
+        cmd: "ufw status | head -1"
+      changed_when: false
+      register: ufw_status
+      ignore_errors: yes
+      tags: [security]
+
+    - name: Check if Fail2ban is running
+      ansible.builtin.systemd:
+        name: fail2ban
+        state: started
+      check_mode: no
+      register: fail2ban_status
+      failed_when: false
+      tags: [security]
+
+    - name: Check Fail2ban jail status
+      ansible.builtin.command:
+        cmd: "fail2ban-client status"
+      changed_when: false
+      register: fail2ban_jails
+      ignore_errors: yes
+      tags: [security]
+
+    - name: Check if auditd is running
+      ansible.builtin.systemd:
+        name: auditd
+        state: started
+      check_mode: no
+      register: auditd_status
+      failed_when: false
+      tags: [security]
+
+    - name: Check audit log size
+      ansible.builtin.shell:
+        cmd: "auditctl -s | grep 'backlog_limit'"
+      changed_when: false
+      register: audit_config
+      ignore_errors: yes
+      tags: [security]
+
+    - name: Check SSH configuration for critical settings
+      ansible.builtin.shell:
+        cmd: |
+          echo "PermitRootLogin: $(sshd -T | grep permitrootlogin | awk '{print $2}')"
+          echo "PasswordAuth: $(sshd -T | grep passwordauthentication | awk '{print $2}')"
+          echo "PubkeyAuth: $(sshd -T | grep pubkeyauthentication | awk '{print $2}')"
+          echo "Port: $(sshd -T | grep port | head -1 | awk '{print $2}')"
+          echo "MaxAuthTries: $(sshd -T | grep maxauthtries | awk '{print $2}')"
+      changed_when: false
+      register: ssh_config_check
+      when: ansible_facts.os_family == "Debian"
+      tags: [security]
+
+    - name: Display SSH configuration audit
+      ansible.builtin.debug:
+        var: ssh_config_check.stdout_lines
+      when: ssh_config_check.stdout_lines is defined
+      tags: [security]
+
+    - name: Check for users with password authentication
+      ansible.builtin.shell:
+        cmd: "awk -F: '($2 != \"x\" && $2 != \"*\" && $2 != \"!\" && $2 != \"!!\") {print $1 \" has a password set\"}' /etc/shadow"
+      changed_when: false
+      register: password_users
+      ignore_errors: yes
+      tags: [security]
+
+    - name: Check for empty passwords
+      ansible.builtin.shell:
+        cmd: "awk -F: '($2 == \"\" || $2 == \"!!\") {print $1 \" has no/invalid password\"}' /etc/shadow"
+      changed_when: false
+      register: empty_password_users
+      ignore_errors: yes
+      tags: [security]
+
+    - name: Check for world-writable files in critical directories
+      ansible.builtin.shell:
+        cmd: "find /etc -type f -perm -o+w 2>/dev/null | head -20"
+      changed_when: false
+      register: world_writable_files
+      ignore_errors: yes
+      tags: [security]
+
+    - name: Check SUID/SGID binaries
+      ansible.builtin.shell:
+        cmd: "find /usr/bin /usr/sbin /usr/local/bin -type f -perm -4000 2>/dev/null | head -30"
+      changed_when: false
+      register: suid_binaries
+      ignore_errors: yes
+      tags: [security]
+
+    - name: ==========================================================
+      ansible.builtin.debug:
+        msg: "CERTIFICATE AND SSL CHECKS"
+      tags: [ssl]
+
+    - name: Check SSL certificate expiry (web servers)
+      ansible.builtin.shell:
+        cmd: >
+          timeout 5 openssl s_client -connect localhost:{{ https_port | default(443) }}
+          -servername {{ inventory_hostname }} 2>/dev/null
+          | openssl x509 -noout -dates
+          || echo "Certificate check failed"
+      changed_when: false
+      register: cert_expiry
+      ignore_errors: yes
+      when: "'web_servers' in group_names"
+      tags: [ssl]
+
+    - name: ==========================================================
+      ansible.builtin.debug:
+        msg: "UPDATE AND PATCH STATUS"
+      tags: [updates]
+
+    - name: Check pending package updates (Debian/Ubuntu)
+      ansible.builtin.shell:
+        cmd: "apt list --upgradable 2>/dev/null | grep -c upgradable || echo 0"
+      changed_when: false
+      register: pending_updates_debian
+      when: ansible_facts.os_family == "Debian"
+      tags: [updates]
+
+    - name: Alert on pending security updates
+      ansible.builtin.debug:
+        msg: "SECURITY UPDATES: {{ pending_updates_debian.stdout }} pending updates"
+      when: pending_updates_debian.stdout is defined and (pending_updates_debian.stdout | int) > 10
+      tags: [updates]
+
+    - name: Check if automatic security updates are enabled
+      ansible.builtin.stat:
+        path: /etc/apt/apt.conf.d/20auto-upgrades
+      register: auto_upgrades
+      when: ansible_facts.os_family == "Debian"
+      tags: [updates]
+
+    - name: ==========================================================
+      ansible.builtin.debug:
+        msg: "NETWORK AND LISTENING SERVICES"
+      tags: [network]
+
+    - name: Check listening services (TCP)
+      ansible.builtin.shell:
+        cmd: "ss -tlnp | tail -n +2 | awk '{print $4, $1}'"
+      changed_when: false
+      register: listening_services
+      tags: [network]
+
+    - name: Check for unexpected open ports
+      ansible.builtin.shell:
+        cmd: "ss -tlnp | awk '{print $4}' | grep -oP ':\\K\\d+' | sort -u"
+      changed_when: false
+      register: open_ports
+      tags: [network]
+
+    - name: Check network interfaces status
+      ansible.builtin.shell:
+        cmd: "ip -br addr show | grep -v lo"
+      changed_when: false
+      register: network_interfaces
+      tags: [network]
+
+    - name: ==========================================================
+      ansible.builtin.debug:
+        msg: "COMPLIANCE SUMMARY"
+      tags: [report]
+
+    - name: Generate comprehensive health check report
+      ansible.builtin.copy:
+        content: |
+          ========================================
+          HEALTH CHECK REPORT
+          Host: {{ inventory_hostname }}
+          Timestamp: {{ check_time.stdout }}
+          Environment: {{ env_type | default('production') }}
+          ========================================
+
+          1. CONNECTIVITY
+             Ping:          {{ 'PASS' if ping_result.ping is defined else 'FAIL' }}
+             DNS:           {{ 'PASS' if dns_resolution.rc == 0 else 'FAIL' }}
+             NTP Sync:      {{ 'PASS' if ntp_sync.stdout == 'yes' else 'FAIL' }}
+
+          2. SERVICES
+             SSH:           {{ 'RUNNING' if sshd_status.status.ActiveState == 'active' else 'STOPPED' }}
+             Cron:          {{ 'RUNNING' if cron_status.status.ActiveState == 'active' else 'STOPPED' }}
+             Rsyslog:       {{ 'RUNNING' if rsyslog_status.status.ActiveState == 'active' else 'STOPPED' }}
+             Nginx:         {{ nginx_status.status.ActiveState | default('N/A') }}
+             PostgreSQL:    {{ pg_status.status.ActiveState | default('N/A') }}
+             Samba AD:      {{ samba_status.status.ActiveState | default('N/A') }}
+
+          3. RESOURCES
+             Root Disk:     {{ root_disk_usage.stdout }}%
+             Memory:        {{ used_memory_pct.stdout }}%
+             Load Average:  {{ load_avg_1m.stdout }}
+             Processes:     {{ process_count.stdout }}
+
+          4. SECURITY
+             Firewall:      {{ ufw_status.stdout | default('N/A') }}
+             Fail2ban:      {{ fail2ban_status.status.ActiveState | default('N/A') }}
+             Auditd:        {{ auditd_status.status.ActiveState | default('N/A') }}
+
+          5. UPDATES
+             Pending:       {{ pending_updates_debian.stdout | default('N/A') }}
+             Auto-Upgrades: {{ 'ENABLED' if auto_upgrades.stat.exists else 'DISABLED' }}
+
+          ========================================
+          END OF HEALTH CHECK REPORT
+          ========================================
+        dest: "{{ health_report_path }}/healthcheck-{{ inventory_hostname }}-{{ check_time.stdout }}.txt"
+        owner: root
+        group: root
+        mode: "0644"
+      tags: [report]
+
+    - name: Display health check summary
+      ansible.builtin.debug:
+        msg:
+          - "+=======================================+"
+          - "| HEALTH CHECK SUMMARY                  |"
+          - "| Host: {{ inventory_hostname }}"
+          - "| Connectivity: {{ 'PASS' if ping_result.ping is defined else 'FAIL' }}"
+          - "| Disk: {{ root_disk_usage.stdout }}% used"
+          - "| Memory: {{ used_memory_pct.stdout }}% used"
+          - "| Load: {{ load_avg_1m.stdout }}"
+          - "| Report: {{ health_report_path }}/healthcheck-{{ inventory_hostname }}-{{ check_time.stdout }}.txt"
+          - "+=======================================+"
+      tags: [report]
+
+    - name: Fail playbook if critical health checks fail
+      ansible.builtin.fail:
+        msg: "CRITICAL: Health check failed on {{ inventory_hostname }}"
+      when:
+        - root_disk_usage.stdout | int >= disk_threshold_critical
+        - used_memory_pct.stdout | int >= memory_threshold_critical
+        - load_avg_1m.stdout | float >= (load_avg_threshold * 2)
+      tags: [report, never]
