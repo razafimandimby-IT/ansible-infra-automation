@@ -1,0 +1,58 @@
+---
+# ============================================================
+# Backup Client Deployment
+# ============================================================
+# Configures automated, encrypted backups using BorgBackup
+# with rotation, retention policies, and integrity checks.
+# ============================================================
+# Usage:
+#   ansible-playbook playbooks/06-backup-client.yml
+#   ansible-playbook playbooks/06-backup-client.yml -e "backup_retention_days=14"
+# ============================================================
+
+- name: "Backup Client — Automated Encrypted Backups"
+  hosts: all
+  gather_facts: yes
+  become: yes
+  roles:
+    - role: backup_client
+      tags: [backup, borg, encryption, retention]
+
+  post_tasks:
+    - name: Verify backup script exists
+      ansible.builtin.stat:
+        path: /usr/local/bin/backup-client.sh
+      register: backup_script
+      tags: [verify]
+
+    - name: Check backup cron job
+      ansible.builtin.cron:
+        name: "ansible-backup-client"
+        state: present
+      check_mode: yes
+      register: cron_check
+      tags: [verify]
+
+    - name: Display backup configuration summary
+      ansible.builtin.debug:
+        msg:
+          - "Backup Script:  {{ 'INSTALLED' if backup_script.stat.exists else 'MISSING' }}"
+          - "Cron Job:       {{ 'CONFIGURED' if not cron_check.changed else 'PENDING' }}"
+          - "Retention:      {{ backup_retention_days | default(backup.retention_days) }} days"
+          - "Encryption:     {{ 'ENABLED' if backup.encryption_enabled | default(true) else 'DISABLED' }}"
+          - "Compression:    {{ backup.compression | default('zstd') }}"
+      tags: [verify]
+
+    - name: Perform backup dry-run
+      ansible.builtin.shell:
+        cmd: "/usr/local/bin/backup-client.sh --dry-run"
+      changed_when: false
+      register: backup_dryrun
+      ignore_errors: yes
+      tags: [test]
+
+    - name: Display dry-run results
+      ansible.builtin.debug:
+        var: backup_dryrun.stdout_lines
+      when: backup_dryrun.stdout_lines is defined
+      tags: [test]
