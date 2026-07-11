@@ -1,0 +1,75 @@
+---
+# ============================================================
+# Master Playbook — Full Infrastructure Deployment
+# ============================================================
+# Deploys and configures the entire IT infrastructure
+# including domain controllers, web servers, databases,
+# monitoring, security hardening, and backup clients.
+# ============================================================
+
+- name: "Phase 1 — Common Base Configuration"
+  hosts: all
+  gather_facts: yes
+  become: yes
+  roles:
+    - role: common
+      tags: [common, base, always]
+
+- name: "Phase 2 — Security Hardening Baseline"
+  hosts: all
+  gather_facts: yes
+  become: yes
+  roles:
+    - role: security_hardening
+      tags: [security, hardening, cis]
+  when: env_type != "staging" or security.hardening_enabled | default(true)
+
+- name: "Phase 3 — Domain Controllers"
+  hosts: domain_controllers
+  gather_facts: yes
+  become: yes
+  roles:
+    - role: domain_controller
+      tags: [domain_controller, ad, dns, dhcp]
+
+- name: "Phase 4 — Web Servers"
+  hosts: web_servers
+  gather_facts: yes
+  become: yes
+  roles:
+    - role: web_server
+      tags: [web, nginx, php, ssl]
+
+- name: "Phase 5 — Database Servers"
+  hosts: database_servers
+  gather_facts: yes
+  become: yes
+  roles:
+    - role: database_server
+      tags: [database, postgresql, mysql]
+
+- name: "Phase 6 — Monitoring Stack"
+  hosts: monitoring
+  gather_facts: yes
+  become: yes
+  roles:
+    - role: monitoring_agent
+      tags: [monitoring, zabbix, prometheus, grafana]
+
+- name: "Phase 7 — Backup Client Configuration"
+  hosts: all
+  gather_facts: yes
+  become: yes
+  roles:
+    - role: backup_client
+      tags: [backup, borg, rsync]
+  when: backup.enabled | default(true)
+
+- name: "Phase 8 — Post-Deployment Validation"
+  hosts: all
+  gather_facts: yes
+  become: yes
+  tasks:
+    - name: Include health check playbook
+      ansible.builtin.import_playbook: 99-healthcheck.yml
+      tags: [healthcheck, validation]
