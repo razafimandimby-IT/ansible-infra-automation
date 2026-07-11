@@ -1,0 +1,191 @@
+---
+# Common role — Base configuration for all servers
+# Tasks: Package installation, NTP, users, SSH keys, MOTD, sysctl
+
+- name: Update APT cache
+  ansible.builtin.apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  when: ansible_facts.os_family == "Debian"
+
+- name: Install standard system packages
+  ansible.builtin.apt:
+    name: "{{ standard_packages }}"
+    state: present
+  when: ansible_facts.os_family == "Debian"
+
+- name: Install additional common packages
+  ansible.builtin.apt:
+    name:
+      - bash-completion
+      - command-not-found
+      - ethtool
+      - haveged
+      - lsof
+      - lvm2
+      - man-db
+      - mtr
+      - nload
+      - nmap
+      - openssh-server
+      - openssh-client
+      - python3-apt
+      - strace
+      - tmux
+      - unattended-upgrades
+      - wget
+      - whois
+    state: present
+  when: ansible_facts.os_family == "Debian"
+
+- name: Configure automatic security updates
+  ansible.builtin.template:
+    src: 50unattended-upgrades.j2
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_facts.os_family == "Debian"
+
+- name: Enable automatic updates
+  ansible.builtin.copy:
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Download-Upgradeable-Packages "1";
+      APT::Periodic::AutocleanInterval "7";
+      APT::Periodic::Unattended-Upgrade "1";
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_facts.os_family == "Debian"
+
+- name: Create admin users
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    uid: "{{ item.uid | default(omit) }}"
+    groups: "{{ item.groups }}"
+    shell: "{{ item.shell | default('/bin/bash') }}"
+    create_home: yes
+    state: present
+  loop: "{{ admin_users }}"
+
+- name: Configure SSH keys for admin users
+  ansible.builtin.authorized_key:
+    user: "{{ item.name }}"
+    key: "{{ item.ssh_key }}"
+    state: present
+  loop: "{{ admin_users }}"
+  when: item.ssh_key is defined
+
+- name: Configure passwordless sudo for admin users
+  ansible.builtin.copy:
+    content: "{{ item.name }} ALL=(ALL) NOPASSWD: ALL\n"
+    dest: "/etc/sudoers.d/{{ item.name }}"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "/usr/sbin/visudo -cf %s"
+  loop: "{{ admin_users }}"
+
+- name: Set system timezone
+  ansible.builtin.timezone:
+    name: "{{ timezone }}"
+
+- name: Install and configure NTP
+  ansible.builtin.apt:
+    name: chrony
+    state: present
+
+- name: Deploy chrony configuration
+  ansible.builtin.template:
+    src: ntp.conf.j2
+    dest: /etc/chrony/chrony.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart chrony
+
+- name: Start and enable chrony
+  ansible.builtin.systemd:
+    name: chronyd
+    state: started
+    enabled: yes
+
+- name: Configure systemd-resolved
+  ansible.builtin.copy:
+    content: |
+      [Resolve]
+      DNS={{ dns_servers | join(' ') }}
+      Domains={{ domain_name }}
+    dest: /etc/systemd/resolved.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart systemd-resolved
+
+- name: Set hostname
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Update /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^{{ ansible_default_ipv4.address | default('127.0.1.1') }}\\s+"
+    line: "{{ ansible_default_ipv4.address | default('127.0.1.1') }} {{ inventory_hostname }} {{ inventory_hostname.split('.')[0] }}"
+    state: present
+  when: ansible_default_ipv4.address is defined
+
+- name: Deploy MOTD banner
+  ansible.builtin.template:
+    src: motd.j2
+    dest: /etc/motd
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure logrotate
+  ansible.builtin.copy:
+    content: |
+      /var/log/syslog
+      /var/log/auth.log
+      /var/log/kern.log
+      /var/log/debug
+      /var/log/messages
+      /var/log/daemon.log {
+          rotate 4
+          weekly
+          compress
+          delaycompress
+          missingok
+          notifempty
+          postrotate
+              /usr/lib/rsyslog/rsyslog-rotate
+          endscript
+      }
+    dest: /etc/logrotate.d/rsyslog
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Enable and start rsyslog
+  ansible.builtin.systemd:
+    name: rsyslog
+    state: started
+    enabled: yes
+
+- name: Disable SSH DNS lookups (speed up connections)
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?UseDNS"
+    line: "UseDNS no"
+    state: present
+  notify: restart sshd
+
+- name: Create admin scripts directory
+  ansible.builtin.file:
+    path: /opt/admin-scripts
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
