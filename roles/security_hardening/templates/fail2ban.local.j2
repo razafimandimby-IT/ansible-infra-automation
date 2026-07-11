@@ -1,0 +1,87 @@
+# Ansible managed: {{ ansible_managed }}
+# Fail2ban configuration — Hardened
+
+[DEFAULT]
+# Ban time: 1 hour
+bantime = {{ security.fail2ban.bantime }}
+
+# Find time window: 10 minutes
+findtime = {{ security.fail2ban.findtime }}
+
+# Max retry attempts within findtime
+maxretry = {{ security.fail2ban.max_retry }}
+
+# Ignore IPs (whitelist)
+ignoreip = 127.0.0.1/8 ::1 {{ security.fail2ban.ignore_ips | join(' ') }}
+
+# Ban action
+banaction = ufw
+banaction_allports = ufw
+
+# Protocol
+protocol = tcp
+
+# Chain
+chain = INPUT
+
+# Log encoding
+logencoding = utf-8
+
+# Destination email
+destemail = root@localhost
+sender = fail2ban@{{ ansible_fqdn }}
+mta = sendmail
+
+# Email action
+action = %(action_mwl)s
+
+# ============================================================
+# JAILS
+# ============================================================
+
+[sshd]
+enabled = true
+port = {{ security.ssh_port }}
+filter = sshd
+logpath = %(sshd_log)s
+maxretry = 3
+bantime = 3600
+
+[sshd-ddos]
+enabled = true
+port = {{ security.ssh_port }}
+filter = sshd-ddos
+logpath = %(sshd_log)s
+maxretry = 5
+bantime = 43200
+
+[recidive]
+enabled = true
+logpath = /var/log/fail2ban.log
+banaction = ufw
+maxretry = 5
+bantime = 604800
+findtime = 86400
+
+[apache-auth]
+enabled = false
+port = http,https
+filter = apache-auth
+logpath = %(apache_error_log)s
+maxretry = 5
+bantime = 3600
+
+[nginx-http-auth]
+enabled = true
+port = http,https
+filter = nginx-http-auth
+logpath = /var/log/nginx/error.log
+maxretry = 5
+bantime = 3600
+
+[postfix]
+enabled = false
+filter = postfix
+logpath = /var/log/mail.log
+maxretry = 3
+bantime = 3600
