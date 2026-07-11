@@ -1,0 +1,41 @@
+---
+# Staging Environment Variables
+env_type: "staging"
+domain_name: "staging.example.internal"
+dns_servers:
+  - 10.0.10.10
+  - 8.8.8.8
+ntp_servers:
+  - 0.fr.pool.ntp.org iburst
+  - 1.fr.pool.ntp.org iburst
+timezone: "Europe/Paris"
+
+# Staging logging (more verbose)
+log_level: "debug"
+audit_level: "verbose"
+
+# Reduced security for staging (easier debugging)
+security:
+  ssh_port: 22
+  ssh_password_authentication: "yes"
+  ssh_permit_root_login: "yes"
+  fail2ban:
+    enabled: false
+  firewall:
+    enabled: false
+  auditd:
+    enabled: true
+  sysctl_hardening: false
+
+# Reduced resource allocations
+db_max_connections: 50
+db_shared_buffers: "256MB"
+nginx_worker_connections: 512
+
+# Monitoring
+monitoring:
+  zabbix_server: "mon-stg01.staging.example.internal"
+  log_level: "debug"
+
+# Backup
+backup_retention_days: 7
