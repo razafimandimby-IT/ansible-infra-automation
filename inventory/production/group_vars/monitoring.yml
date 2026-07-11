@@ -1,0 +1,42 @@
+---
+# Monitoring specific variables
+zabbix_server: "monitor01.example.internal"
+zabbix_server_port: 10051
+zabbix_agent_port: 10050
+zabbix_version: "6.0"
+zabbix_agent_package: "zabbix-agent2"
+zabbix_agent_service: "zabbix-agent2"
+zabbix_agent_log_level: 3
+zabbix_agent_buffer_send: 5
+zabbix_agent_buffer_size: 100
+zabbix_agent_timeout: 30
+zabbix_tls_enabled: true
+zabbix_tls_accept: 4
+zabbix_tls_connect: 4
+
+prometheus_node_exporter_version: "1.6.1"
+prometheus_node_exporter_port: 9100
+prometheus_node_exporter_enabled_collectors:
+  - cpu
+  - diskstats
+  - filesystem
+  - loadavg
+  - meminfo
+  - netstat
+  - network
+  - processes
+  - systemd
+  - textfile
+
+grafana_admin_password: "{{ vault_grafana_admin_password }}"
+grafana_admin_user: "admin"
+grafana_port: 3000
+grafana_plugins:
+  - grafana-piechart-panel
+  - grafana-worldmap-panel
+
+logstash_server: "monitor01.example.internal"
+logstash_port: 10514
+logstash_ssl_enabled: true
+
+healthcheck_email_recipient: "admin@example.internal"
