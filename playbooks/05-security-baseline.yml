@@ -1,0 +1,103 @@
+---
+# ============================================================
+# Security Baseline Hardening
+# ============================================================
+# CIS Benchmark-compliant security hardening for all servers.
+# Applies: SSH config, firewall, fail2ban, auditd, sysctl,
+#          automatic updates, kernel hardening, file permissions,
+#          user security, and service lockdown.
+# ============================================================
+# Usage:
+#   ansible-playbook playbooks/05-security-baseline.yml
+#   ansible-playbook playbooks/05-security-baseline.yml -t ssh
+#   ansible-playbook playbooks/05-security-baseline.yml --skip-tags firewall
+# ============================================================
+
+- name: "Security Baseline — CIS Level 2 Hardening"
+  hosts: all
+  gather_facts: yes
+  become: yes
+  roles:
+    - role: security_hardening
+      tags: [security, hardening, cis, ssh, firewall, fail2ban, auditd, sysctl]
+
+  pre_tasks:
+    - name: Record hardening start timestamp
+      ansible.builtin.command:
+        cmd: date -Iseconds
+      changed_when: false
+      register: hardening_start
+      tags: [always]
+
+    - name: Create security hardening report directory
+      ansible.builtin.file:
+        path: /var/log/security-hardening
+        state: directory
+        owner: root
+        group: root
+        mode: "0750"
+      tags: [always]
+
+    - name: Back up current SSH configuration
+      ansible.builtin.copy:
+        src: /etc/ssh/sshd_config
+        dest: "/var/log/security-hardening/sshd_config.bak.{{ hardening_start.stdout }}"
+        owner: root
+        group: root
+        mode: "0600"
+        remote_src: yes
+      ignore_errors: yes
+      tags: [ssh, backup]
+
+    - name: Back up current sysctl configuration
+      ansible.builtin.copy:
+        src: /etc/sysctl.conf
+        dest: "/var/log/security-hardening/sysctl.conf.bak.{{ hardening_start.stdout }}"
+        owner: root
+        group: root
+        mode: "0644"
+        remote_src: yes
+      ignore_errors: yes
+      tags: [sysctl, backup]
+
+  post_tasks:
+    - name: Record hardening completion timestamp
+      ansible.builtin.command:
+        cmd: date -Iseconds
+      changed_when: false
+      register: hardening_end
+      tags: [always]
+
+    - name: Generate hardening summary report
+      ansible.builtin.copy:
+        content: |
+          # Security Hardening Report
+          # Host: {{ inventory_hostname }}
+          # Started: {{ hardening_start.stdout }}
+          # Completed: {{ hardening_end.stdout }}
+          # Roles Applied: security_hardening
+          # SSH Hardened: {{ 'YES' if security.ssh_password_authentication == 'no' else 'NO' }}
+          # Firewall: {{ 'ENABLED' if ansible_facts.ufw is defined else 'CHECK MANUAL' }}
+          # Fail2ban: {{ 'ENABLED' if 'fail2ban' in ansible_facts.packages else 'NOT INSTALLED' }}
+          # Auditd: {{ 'ENABLED' if 'auditd' in ansible_facts.packages else 'NOT INSTALLED' }}
+          dest: "/var/log/security-hardening/report-{{ hardening_start.stdout }}.txt"
+        owner: root
+        group: root
+        mode: "0640"
+      tags: [report]
+
+    - name: Display hardening completion message
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - " Security Hardening Complete"
+          - " Host: {{ inventory_hostname }}"
+          - " Report: /var/log/security-hardening/"
+          - "========================================"
+      tags: [report]
+
+    - name: Notify if reboot is required for kernel parameters
+      ansible.builtin.debug:
+        msg: "WARNING: A system reboot is recommended to apply all kernel parameter changes."
+      when: security.sysctl.ip_forward is defined
+      tags: [sysctl, warning]
