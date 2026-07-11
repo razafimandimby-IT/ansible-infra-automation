@@ -1,0 +1,80 @@
+---
+# ============================================================
+# Web Server Deployment
+# ============================================================
+# Deploys and configures Nginx web servers with PHP-FPM,
+# SSL certificates, and application deployment.
+# ============================================================
+# Usage:
+#   ansible-playbook playbooks/02-web-server.yml
+#   ansible-playbook playbooks/02-web-server.yml -e "ssl_enabled=false"
+# ============================================================
+
+- name: "Web Server — Nginx, PHP-FPM, SSL Deployment"
+  hosts: web_servers
+  gather_facts: yes
+  become: yes
+  roles:
+    - role: web_server
+      tags: [web, nginx, php, ssl, app]
+
+  post_tasks:
+    - name: Verify Nginx is running
+      ansible.builtin.systemd:
+        name: nginx
+        state: started
+      check_mode: no
+      register: nginx_status
+      failed_when: false
+      tags: [verify]
+
+    - name: Display Nginx status
+      ansible.builtin.debug:
+        msg: "Nginx: {{ 'RUNNING' if nginx_status.status.ActiveState == 'active' else 'STOPPED' }}"
+      tags: [verify]
+
+    - name: Test HTTP endpoint
+      ansible.builtin.uri:
+        url: "http://localhost:{{ http_port | default(80) }}"
+        status_code: 200
+      register: http_check
+      ignore_errors: yes
+      tags: [verify]
+
+    - name: Test HTTPS endpoint (if enabled)
+      ansible.builtin.uri:
+        url: "https://localhost:{{ https_port | default(443) }}"
+        validate_certs: no
+        status_code: 200
+      register: https_check
+      ignore_errors: yes
+      when: ssl_enabled | default(true)
+      tags: [verify]
+
+    - name: Display web server status summary
+      ansible.builtin.debug:
+        msg:
+          - "HTTP  ({{ http_port | default(80) }}):  {{ 'OK' if http_check.status == 200 else 'FAIL' }}"
+          - "HTTPS ({{ https_port | default(443) }}): {{ 'OK' if https_check.status == 200 else 'FAIL' }}"
+      tags: [verify]
+
+    - name: Verify PHP-FPM is running
+      ansible.builtin.systemd:
+        name: "php{{ php_version }}-fpm"
+        state: started
+      check_mode: no
+      register: php_status
+      failed_when: false
+      tags: [verify]
+
+    - name: Check PHP version
+      ansible.builtin.command:
+        cmd: "php -v | head -1"
+      changed_when: false
+      register: php_version_check
+      tags: [verify]
+
+    - name: Display PHP version
+      ansible.builtin.debug:
+        var: php_version_check.stdout
+      tags: [verify]
