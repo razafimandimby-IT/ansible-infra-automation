@@ -1,0 +1,116 @@
+# Ansible managed: {{ ansible_managed }}
+# Kernel parameters — Hardened per CIS benchmarks
+# Applied via sysctl.d
+
+# ============================================================
+# Network Security
+# ============================================================
+
+# IP Forwarding — disable unless router/gateway
+net.ipv4.ip_forward = {{ security.sysctl.ip_forward | default(0) }}
+net.ipv6.conf.all.forwarding = 0
+
+# Send redirects — disable (not a router)
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+
+# ICMP redirects — disable
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+
+# Secure ICMP redirects — disable
+net.ipv4.conf.all.secure_redirects = 0
+net.ipv4.conf.default.secure_redirects = 0
+
+# Source routed packets — reject
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+net.ipv6.conf.all.accept_source_route = 0
+net.ipv6.conf.default.accept_source_route = 0
+
+# ============================================================
+# Network Hardening
+# ============================================================
+
+# Ignore ICMP echo broadcasts (smurf attack)
+net.ipv4.icmp_echo_ignore_broadcasts = {{ security.sysctl.icmp_echo_ignore_broadcasts | default(1) }}
+
+# Ignore bogus ICMP error responses
+net.ipv4.icmp_ignore_bogus_error_responses = {{ security.sysctl.icmp_ignore_bogus_error_responses | default(1) }}
+
+# TCP SYN cookies (SYN flood protection)
+net.ipv4.tcp_syncookies = {{ security.sysctl.tcp_syncookies | default(1) }}
+
+# Enable TCP RFC 1337 (time-wait assassination)
+net.ipv4.tcp_rfc1337 = {{ security.sysctl.tcp_rfc1337 | default(1) }}
+
+# Disable TCP timestamps (reduces kernel attack surface)
+net.ipv4.tcp_timestamps = {{ security.sysctl.tcp_timestamps | default(0) }}
+
+# SYN backlog
+net.ipv4.tcp_max_syn_backlog = {{ security.sysctl.tcp_max_syn_backlog | default(2048) }}
+
+# SYN/ACK retries
+net.ipv4.tcp_syn_retries = {{ security.sysctl.tcp_syn_retries | default(2) }}
+net.ipv4.tcp_synack_retries = {{ security.sysctl.tcp_synack_retries | default(2) }}
+
+# TCP keepalive
+net.ipv4.tcp_keepalive_time = 300
+net.ipv4.tcp_keepalive_probes = 5
+net.ipv4.tcp_keepalive_intvl = 15
+
+# Log martian packets (spoofed/routed incorrectly)
+net.ipv4.conf.all.log_martians = 1
+net.ipv4.conf.default.log_martians = 1
+
+# Reverse path filtering (source address validation)
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+
+# TCP FIN timeout
+net.ipv4.tcp_fin_timeout = 15
+
+# ============================================================
+# Memory and Process Hardening
+# ============================================================
+
+# ASLR — full randomization
+kernel.randomize_va_space = 2
+
+# Restrict kernel pointer access
+kernel.kptr_restrict = 2
+
+# Restrict dmesg to root only
+kernel.dmesg_restrict = 1
+
+# Restrict BPF to CAP_BPF
+kernel.unprivileged_bpf_disabled = 1
+
+# Restrict perf events to root
+kernel.perf_event_paranoid = 3
+
+# Kernel panic timeout
+kernel.panic = 60
+kernel.panic_on_oops = 60
+
+# Core dumps
+fs.suid_dumpable = 0
+
+# Max number of open files
+fs.file-max = 65535
+
+# ============================================================
+# Virtual Memory
+# ============================================================
+
+# VFS cache pressure
+vm.vfs_cache_pressure = 50
+
+# Swap tendency (lower = less swapping)
+vm.swappiness = 10
+
+# Dirty page ratio
+vm.dirty_ratio = 30
+vm.dirty_background_ratio = 5
