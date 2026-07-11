@@ -1,0 +1,83 @@
+# Ansible managed: {{ ansible_managed }}
+# SSH Server Configuration — Hardened per CIS benchmarks
+
+# Port
+Port {{ security.ssh_port }}
+
+# Protocol
+Protocol 2
+
+# Address family
+AddressFamily inet
+
+# Listen addresses (uncomment and set as needed)
+#ListenAddress 0.0.0.0
+
+# Authentication
+PermitRootLogin {{ security.ssh_permit_root_login }}
+PubkeyAuthentication {{ security.ssh_pubkey_authentication }}
+PasswordAuthentication {{ security.ssh_password_authentication }}
+PermitEmptyPasswords no
+AuthenticationMethods publickey
+ChallengeResponseAuthentication no
+UsePAM yes
+KerberosAuthentication no
+GSSAPIAuthentication no
+
+# Key handling
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_rsa_key
+AuthorizedKeysFile .ssh/authorized_keys
+AuthorizedPrincipalsFile none
+TrustedUserCAKeys none
+RevokedKeys none
+
+# Access restrictions
+MaxAuthTries {{ security.ssh_max_auth_tries }}
+MaxSessions 10
+MaxStartups 10:30:60
+LoginGraceTime 30
+PermitUserEnvironment no
+IgnoreRhosts yes
+HostbasedAuthentication no
+RhostsRSAAuthentication no
+
+# Session management
+ClientAliveInterval {{ security.ssh_client_alive_interval }}
+ClientAliveCountMax {{ security.ssh_client_alive_count_max }}
+TCPKeepAlive no
+Compression no
+PrintMotd yes
+PrintLastLog yes
+Banner /etc/issue
+
+# Logging
+SyslogFacility AUTHPRIV
+LogLevel INFO
+
+# Cryptographic settings
+Ciphers {{ security.ssh_ciphers | join(',') }}
+KexAlgorithms {{ security.ssh_kex_algorithms | join(',') }}
+MACs {{ security.ssh_macs | join(',') }}
+
+# Forwarding
+AllowTcpForwarding no
+X11Forwarding no
+X11DisplayOffset 10
+X11UseLocalhost yes
+PermitTTY yes
+PermitTunnel no
+GatewayPorts no
+AllowAgentForwarding no
+DisableForwarding yes
+
+# SFTP
+Subsystem sftp internal-sftp
+
+# Match group for restricted users
+Match Group sftp-only
+    ChrootDirectory %h
+    ForceCommand internal-sftp
+    X11Forwarding no
+    AllowTcpForwarding no
+    PermitTTY no
