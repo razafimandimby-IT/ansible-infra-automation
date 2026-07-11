@@ -1,0 +1,174 @@
+---
+# Backup Client role — Automated encrypted backups
+
+- name: Install backup software
+  ansible.builtin.apt:
+    name:
+      - borgbackup
+      - rsync
+      - curl
+      - openssl
+      - pv
+      - mbuffer
+      - lz4
+      - zstd
+    state: present
+  tags: [packages]
+
+- name: Create backup user
+  ansible.builtin.user:
+    name: backup
+    uid: 2100
+    groups: adm
+    shell: /bin/bash
+    create_home: yes
+    state: present
+    system: no
+  tags: [user]
+
+- name: Generate SSH key for backup user
+  ansible.builtin.user:
+    name: backup
+    generate_ssh_key: yes
+    ssh_key_type: ed25519
+    ssh_key_comment: "backup@{{ ansible_fqdn }}"
+    force: no
+  tags: [ssh]
+
+- name: Display backup SSH public key
+  ansible.builtin.debug:
+    msg:
+      - "Add this SSH public key to the backup server authorized_keys:"
+      - "{{ lookup('file', '/home/backup/.ssh/id_ed25519.pub') }}"
+  tags: [ssh]
+
+- name: Create backup directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: backup
+    group: backup
+    mode: "0700"
+  loop:
+    - /var/backup
+    - /var/backup/local
+    - /var/backup/scripts
+    - /var/backup/logs
+    - /var/backup/manifests
+  tags: [directories]
+
+- name: Create backup exclusion file
+  ansible.builtin.copy:
+    content: |
+      # Ansible managed: Backup exclusion list
+      /dev/*
+      /proc/*
+      /sys/*
+      /tmp/*
+      /run/*
+      /mnt/*
+      /media/*
+      /lost+found
+      /var/cache/apt/archives/*.deb
+      /var/backup/local/*
+      /home/*/.cache/*
+      /var/lib/docker/overlay2/*
+      /var/log/*.gz
+      /var/log/*.old
+      /var/log/*.1
+      /var/log/*.2
+      /var/log/*.3
+      /var/log/journal/$(machine-id)/*.journal
+      *.pyc
+      *.pyo
+      __pycache__
+      .Trash-*
+      .thumbnails
+      npm cache
+      yarn-cache
+      .gradle
+    dest: /var/backup/scripts/exclude-patterns.txt
+    owner: backup
+    group: backup
+    mode: "0644"
+  tags: [config]
+
+- name: Deploy backup script
+  ansible.builtin.template:
+    src: backup-script.sh.j2
+    dest: /usr/local/bin/backup-client.sh
+    owner: root
+    group: root
+    mode: "0750"
+  tags: [script]
+
+- name: Create backup cron job
+  ansible.builtin.cron:
+    name: "ansible-backup-client"
+    hour: 2
+    minute: 0
+    job: "/usr/local/bin/backup-client.sh > /var/backup/logs/backup-$(date +\\%Y\\%m\\%d-\\%H\\%M\\%S).log 2>&1"
+    user: root
+  tags: [cron]
+
+- name: Create weekly backup cron job
+  ansible.builtin.cron:
+    name: "ansible-backup-client-weekly"
+    weekday: 0
+    hour: 3
+    minute: 0
+    job: "/usr/local/bin/backup-client.sh --full > /var/backup/logs/backup-full-$(date +\\%Y\\%m\\%d-\\%H\\%M\\%S).log 2>&1"
+    user: root
+  tags: [cron]
+
+- name: Create monthly backup verification cron job
+  ansible.builtin.cron:
+    name: "ansible-backup-verify"
+    day: 1
+    hour: 4
+    minute: 0
+    job: "/usr/local/bin/backup-client.sh --verify > /var/backup/logs/backup-verify-$(date +\\%Y\\%m\\%d-\\%H\\%M\\%S).log 2>&1"
+    user: root
+  tags: [cron]
+
+- name: Configure logrotate for backup logs
+  ansible.builtin.copy:
+    content: |
+      /var/backup/logs/*.log {
+          weekly
+          rotate 12
+          compress
+          delaycompress
+          missingok
+          notifempty
+          create 0640 backup backup
+      }
+    dest: /etc/logrotate.d/backup-client
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [logrotate]
+
+- name: Set restrictive backup directory permissions
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: backup
+    group: backup
+    mode: "0700"
+  loop:
+    - /var/backup
+    - /home/backup
+
+- name: Perform dry-run backup test
+  ansible.builtin.shell:
+    cmd: "/usr/local/bin/backup-client.sh --dry-run"
+  changed_when: false
+  register: backup_test
+  ignore_errors: yes
+  tags: [test]
+
+- name: Display backup test results
+  ansible.builtin.debug:
+    var: backup_test.stdout_lines
+  when: backup_test.stdout_lines is defined
+  tags: [test]
