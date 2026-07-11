@@ -1,0 +1,123 @@
+---
+# ============================================================
+# Monitoring Stack Deployment
+# ============================================================
+# Installs and configures Zabbix agent, Prometheus
+# node_exporter, and log shipping capabilities.
+# ============================================================
+# Usage:
+#   ansible-playbook playbooks/04-monitoring.yml
+#   ansible-playbook playbooks/04-monitoring.yml -l web_servers
+# ============================================================
+
+- name: "Monitoring — Zabbix Agent, Prometheus Exporter, Log Shipping"
+  hosts: all
+  gather_facts: yes
+  become: yes
+  roles:
+    - role: monitoring_agent
+      tags: [monitoring, zabbix, prometheus, logging]
+
+  post_tasks:
+    - name: Verify Zabbix agent service
+      ansible.builtin.systemd:
+        name: "{{ zabbix_agent_service }}"
+        state: started
+      check_mode: no
+      register: zabbix_status
+      failed_when: false
+      tags: [verify]
+
+    - name: Display Zabbix agent status
+      ansible.builtin.debug:
+        msg: "Zabbix agent: {{ 'RUNNING' if zabbix_status.status.ActiveState == 'active' else 'STOPPED' }}"
+      tags: [verify]
+
+    - name: Check Zabbix agent connectivity to server
+      ansible.builtin.shell:
+        cmd: >
+          timeout 5 bash -c
+          'echo | openssl s_client -connect {{ zabbix_server }}:{{ zabbix_server_port }} 2>/dev/null
+          || echo "TCP check" | nc -w 3 {{ zabbix_server }} {{ zabbix_server_port }} 2>/dev/null
+          || echo "FAIL: Cannot reach {{ zabbix_server }}:{{ zabbix_server_port }}"'
+      changed_when: false
+      register: zabbix_connectivity
+      ignore_errors: yes
+      tags: [verify]
+
+    - name: Display Zabbix connectivity
+      ansible.builtin.debug:
+        var: zabbix_connectivity.stdout_lines
+      when: zabbix_connectivity.stdout_lines is defined
+      tags: [verify]
+
+    - name: Verify Prometheus node_exporter
+      ansible.builtin.systemd:
+        name: prometheus-node-exporter
+        state: started
+      check_mode: no
+      register: prom_status
+      failed_when: false
+      tags: [verify]
+
+    - name: Query Prometheus node_exporter metrics endpoint
+      ansible.builtin.uri:
+        url: "http://localhost:{{ prometheus_node_exporter_port }}/metrics"
+        status_code: 200
+      register: prom_metrics
+      ignore_errors: yes
+      tags: [verify]
+
+    - name: Display Prometheus exporter status
+      ansible.builtin.debug:
+        msg: "Prometheus node_exporter: {{ 'OK' if prom_metrics.status == 200 else 'FAIL' }}"
+      tags: [verify]
+
+    - name: Collect monitoring agent summary
+      ansible.builtin.debug:
+        msg:
+          - "Zabbix Agent:     {{ zabbix_agent_service }}"
+          - "Prometheus Port:  {{ prometheus_node_exporter_port }}"
+          - "Log Shipping:     {{ logstash_server }}:{{ logstash_port }}"
+      tags: [verify]
+
+- name: "Monitoring — Grafana & Prometheus Server Setup"
+  hosts: monitoring, loadbalancers
+  gather_facts: yes
+  become: yes
+  tasks:
+    - name: Deploy Grafana dashboard configuration
+      ansible.builtin.template:
+        src: grafana-datasources.yml.j2
+        dest: /etc/grafana/provisioning/datasources/prometheus.yml
+        owner: grafana
+        group: grafana
+        mode: "0640"
+      notify: restart grafana
+      when: inventory_hostname in groups['monitoring']
+      tags: [grafana]
+
+    - name: Verify Grafana service
+      ansible.builtin.systemd:
+        name: grafana-server
+        state: started
+      check_mode: no
+      register: grafana_status
+      failed_when: false
+      when: inventory_hostname in groups['monitoring']
+      tags: [verify]
+
+    - name: Check Prometheus targets
+      ansible.builtin.uri:
+        url: "http://localhost:9090/api/v1/targets"
+        status_code: 200
+      register: prom_targets
+      ignore_errors: yes
+      when: inventory_hostname in groups['monitoring']
+      tags: [verify]
+
+  handlers:
+    - name: restart grafana
+      ansible.builtin.systemd:
+        name: grafana-server
+        state: restarted
