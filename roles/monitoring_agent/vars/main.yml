@@ -1,0 +1,15 @@
+---
+# Monitoring Agent role variables
+zabbix_agent_packages:
+  - "{{ zabbix_agent_package }}"
+  - zabbix-sender
+  - zabbix-get
+
+node_exporter_dir: "/opt/node_exporter-{{ prometheus_node_exporter_version }}.linux-amd64"
+node_exporter_binary: "/usr/local/bin/node_exporter"
+node_exporter_service: "/etc/systemd/system/prometheus-node-exporter.service"
+node_exporter_textfile_dir: "/var/lib/node_exporter/textfile"
+
+logrotate_monitoring:
+  - /var/log/zabbix/zabbix_agent2.log
+  - /var/log/prometheus/prometheus.log
