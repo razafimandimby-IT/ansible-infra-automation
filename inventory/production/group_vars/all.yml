@@ -1,0 +1,153 @@
+---
+# ============================================================
+# Global variables — applies to ALL hosts
+# ============================================================
+
+# Network & Domain
+domain_name: "example.internal"
+dns_servers:
+  - 192.168.10.10
+  - 192.168.10.11
+  - 8.8.8.8
+  - 8.8.4.4
+dns_search: "example.internal"
+network_prefix: "192.168"
+
+# NTP Configuration
+ntp_servers:
+  - 0.pool.ntp.org iburst
+  - 1.pool.ntp.org iburst
+  - 2.pool.ntp.org iburst
+  - 3.pool.ntp.org iburst
+timezone: "Europe/Paris"
+ntp_restrict:
+  - "default kod nomodify notrap nopeer noquery"
+  - "-6 default kod nomodify notrap nopeer noquery"
+  - "127.0.0.1"
+  - "-6 ::1"
+
+# Admin Users
+admin_users:
+  - name: "ansible-admin"
+    uid: 2000
+    groups: "sudo,adm,admin"
+    shell: "/bin/bash"
+    ssh_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
+  - name: "root-admin"
+    uid: 2001
+    groups: "sudo,adm"
+    shell: "/bin/bash"
+
+# Security Defaults
+security:
+  ssh_port: 22
+  ssh_permit_root_login: "without-password"
+  ssh_password_authentication: "no"
+  ssh_pubkey_authentication: "yes"
+  ssh_max_auth_tries: 3
+  ssh_client_alive_interval: 300
+  ssh_client_alive_count_max: 0
+  ssh_ciphers:
+    - "chacha20-poly1305@openssh.com"
+    - "aes256-gcm@openssh.com"
+    - "aes128-gcm@openssh.com"
+  ssh_kex_algorithms:
+    - "curve25519-sha256@libssh.org"
+    - "diffie-hellman-group-exchange-sha256"
+  ssh_macs:
+    - "hmac-sha2-512-etm@openssh.com"
+    - "hmac-sha2-256-etm@openssh.com"
+
+  fail2ban:
+    enabled: true
+    max_retry: 3
+    bantime: 3600
+    findtime: 600
+    ignore_ips:
+      - "127.0.0.1/8"
+      - "192.168.0.0/16"
+      - "10.0.0.0/8"
+    jails:
+      - sshd
+      - sshd-ddos
+
+  firewall:
+    default_input_policy: "DROP"
+    default_output_policy: "ACCEPT"
+    default_forward_policy: "DROP"
+    allowed_tcp_ports:
+      - 22
+      - 80
+      - 443
+
+  auditd:
+    max_log_file: 128
+    num_logs: 5
+    max_log_file_action: "ROTATE"
+    space_left_action: "SYSLOG"
+    admin_space_left_action: "SUSPEND"
+    action_mail_acct: "root"
+
+  sysctl:
+    ip_forward: 0
+    icmp_echo_ignore_broadcasts: 1
+    icmp_ignore_bogus_error_responses: 1
+    tcp_syncookies: 1
+    tcp_rfc1337: 1
+    tcp_timestamps: 0
+    tcp_max_syn_backlog: 2048
+    tcp_syn_retries: 2
+    tcp_synack_retries: 2
+
+# Package Repositories
+apt_repositories:
+  - "deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware"
+  - "deb http://deb.debian.org/debian-security bookworm-security main"
+  - "deb http://deb.debian.org/debian bookworm-updates main"
+
+# Monitoring defaults
+monitoring:
+  zabbix_version: "6.0"
+  prometheus_retention_days: 30
+  log_shipping_protocol: "tcp"
+  log_shipping_port: 10514
+
+# Backup defaults
+backup:
+  enabled: true
+  retention_days: 30
+  retention_weeks: 8
+  retention_months: 12
+  encryption_enabled: true
+  compression: "zstd"
+  ssh_port: 22
+
+# MOTD
+motd_template: "motd.j2"
+motd_warning_banner: true
+
+# Additional standard packages
+standard_packages:
+  - curl
+  - wget
+  - vim
+  - htop
+  - net-tools
+  - dnsutils
+  - traceroute
+  - git
+  - unzip
+  - zip
+  - gnupg
+  - apt-transport-https
+  - ca-certificates
+  - software-properties-common
+  - rsync
+  - tree
+  - jq
+  - python3
+  - python3-pip
+  - python3-venv
+  - ufw
+  - logrotate
+  - sysstat
