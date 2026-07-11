@@ -1,0 +1,93 @@
+---
+# ============================================================
+# Database Server Deployment
+# ============================================================
+# Deploys and configures PostgreSQL/MySQL database servers
+# with replication, backup, and performance tuning.
+# ============================================================
+# Usage:
+#   ansible-playbook playbooks/03-database-server.yml
+#   ansible-playbook playbooks/03-database-server.yml -e "db_type=mysql"
+# ============================================================
+
+- name: "Database Server — PostgreSQL / MySQL Deployment"
+  hosts: database_servers
+  gather_facts: yes
+  become: yes
+  roles:
+    - role: database_server
+      tags: [database, postgresql, mysql, replication, backup]
+
+  post_tasks:
+    - name: Verify PostgreSQL service
+      ansible.builtin.systemd:
+        name: postgresql
+        state: started
+      check_mode: no
+      register: pg_status
+      failed_when: false
+      when: db_type == "postgresql"
+      tags: [verify]
+
+    - name: Display PostgreSQL status
+      ansible.builtin.debug:
+        msg: "PostgreSQL: {{ 'RUNNING' if pg_status.status.ActiveState == 'active' else 'STOPPED' }}"
+      when: db_type == "postgresql" and pg_status.status is defined
+      tags: [verify]
+
+    - name: Check PostgreSQL version
+      ansible.builtin.shell:
+        cmd: "psql --version"
+      changed_when: false
+      register: pg_version
+      when: db_type == "postgresql"
+      tags: [verify]
+
+    - name: Display PostgreSQL version
+      ansible.builtin.debug:
+        var: pg_version.stdout
+      when: pg_version.stdout is defined
+      tags: [verify]
+
+    - name: Verify database connectivity
+      ansible.builtin.shell:
+        cmd: "psql -U postgres -c 'SELECT 1;'"
+      changed_when: false
+      register: db_connect
+      ignore_errors: yes
+      when: db_type == "postgresql"
+      tags: [verify]
+
+    - name: Check replication status (primary)
+      ansible.builtin.shell:
+        cmd: "psql -U postgres -c \\\"SELECT pg_is_in_recovery();\\\" -t"
+      changed_when: false
+      register: replication_status
+      ignore_errors: yes
+      when: db_type == "postgresql" and db_replication.enabled
+      tags: [verify]
+
+    - name: Display replication mode
+      ansible.builtin.debug:
+        msg: "Server mode: {{ 'STANDBY' if replication_status.stdout.strip() == 't' else 'PRIMARY' }}"
+      when: replication_status.stdout is defined
+      tags: [verify]
+
+    - name: Validate PostgreSQL configuration parameters
+      ansible.builtin.shell:
+        cmd: |
+          psql -U postgres -c "
+            SELECT name, setting, unit
+            FROM pg_settings
+            WHERE name IN ('max_connections','shared_buffers','work_mem','maintenance_work_mem','wal_level','max_wal_senders');
+          "
+      changed_when: false
+      register: pg_config_check
+      when: db_type == "postgresql"
+      tags: [verify]
+
+    - name: Display PostgreSQL configuration
+      ansible.builtin.debug:
+        var: pg_config_check.stdout_lines
+      when: pg_config_check.stdout_lines is defined
+      tags: [verify]
