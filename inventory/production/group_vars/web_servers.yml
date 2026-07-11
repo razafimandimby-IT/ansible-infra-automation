@@ -1,0 +1,27 @@
+---
+# Web Server specific variables
+web_server: "nginx"
+web_root: "/var/www/html"
+web_user: "www-data"
+web_group: "www-data"
+nginx_worker_processes: "auto"
+nginx_worker_connections: 2048
+nginx_keepalive_timeout: 65
+nginx_client_max_body_size: "100M"
+nginx_gzip: true
+nginx_ssl_protocols: "TLSv1.2 TLSv1.3"
+nginx_ssl_ciphers: "HIGH:!aNULL:!MD5:!3DES"
+nginx_default_log_format: "main"
+php_version: "8.2"
+php_memory_limit: "256M"
+php_max_execution_time: 300
+php_max_upload_size: "100M"
+php_post_max_size: "100M"
+php_timezone: "Europe/Paris"
+ssl_cert_path: "/etc/ssl/certs/{{ domain_name }}.pem"
+ssl_key_path: "/etc/ssl/private/{{ domain_name }}.key"
+ssl_dhparam_path: "/etc/ssl/certs/dhparam.pem"
+ssl_enabled: true
+app_repository: "git@github.com:razafimandimby-IT/webapp.git"
+app_branch: "main"
+app_deploy_path: "/var/www/app"
