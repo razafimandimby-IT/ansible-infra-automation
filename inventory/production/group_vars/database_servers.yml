@@ -1,0 +1,39 @@
+---
+# Database Server specific variables
+db_type: "postgresql"
+db_version: "16"
+db_port: 5432
+db_listen_addresses: "0.0.0.0"
+db_max_connections: 200
+db_shared_buffers: "1GB"
+db_effective_cache_size: "3GB"
+db_maintenance_work_mem: "256MB"
+db_checkpoint_completion_target: 0.9
+db_wal_buffers: "16MB"
+db_default_statistics_target: 100
+db_random_page_cost: 1.1
+db_effective_io_concurrency: 200
+db_work_mem: "6553kB"
+db_min_wal_size: "1GB"
+db_max_wal_size: "4GB"
+db_ssl: true
+db_replication:
+  enabled: true
+  user: "replicator"
+  slot_count: 2
+  wal_level: "replica"
+  max_wal_senders: 5
+db_backup:
+  enabled: true
+  schedule: "daily"
+  retention_days: 14
+  pg_dump_path: "/usr/bin/pg_dump"
+db_databases:
+  - name: "appdb"
+    owner: "appuser"
+    encoding: "UTF-8"
+    locale: "en_US.UTF-8"
+  - name: "monitoring"
+    owner: "zabbix"
+    encoding: "UTF-8"
+    locale: "en_US.UTF-8"
