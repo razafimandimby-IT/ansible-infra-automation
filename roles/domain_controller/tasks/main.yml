@@ -1,0 +1,171 @@
+---
+# Domain Controller role — Samba AD DC setup
+# Configures Active Directory Domain Controller, DNS, Kerberos KDC
+
+- name: Include OS-specific variables
+  ansible.builtin.include_vars: "{{ ansible_facts.os_family }}.yml"
+  when: false
+
+- name: Install Samba AD DC packages
+  ansible.builtin.apt:
+    name:
+      - samba
+      - smbclient
+      - krb5-user
+      - krb5-config
+      - winbind
+      - libpam-winbind
+      - libnss-winbind
+      - bind9-dnsutils
+      - chrony
+      - attr
+      - acl
+      - dnsutils
+      - ldb-tools
+    state: present
+    update_cache: yes
+  when: ansible_facts.os_family == "Debian"
+
+- name: Stop and disable conflicting services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: no
+  loop:
+    - smbd
+    - nmbd
+    - winbind
+    - systemd-resolved
+  ignore_errors: yes
+
+- name: Remove existing Samba configuration
+  ansible.builtin.file:
+    path: /etc/samba/smb.conf
+    state: absent
+
+- name: Remove existing Kerberos configuration
+  ansible.builtin.file:
+    path: /etc/krb5.conf
+    state: absent
+
+- name: Provision Samba AD Domain Controller
+  ansible.builtin.command:
+    cmd: >
+      samba-tool domain provision
+      --use-rfc2307
+      --domain={{ dc_netbios }}
+      --realm={{ dc_realm }}
+      --server-role=dc
+      --dns-backend=SAMBA_INTERNAL
+      --adminpass={{ dc_admin_password }}
+      --function-level=2008_R2
+    creates: /var/lib/samba/private/sam.ldb
+  register: dc_provision
+  notify: restart samba-ad-dc
+
+- name: Ensure Samba AD DC configuration is present
+  ansible.builtin.template:
+    src: smb.conf.j2
+    dest: /etc/samba/smb.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart samba-ad-dc
+  when: dc_provision.changed
+
+- name: Configure Kerberos
+  ansible.builtin.template:
+    src: krb5.conf.j2
+    dest: /etc/krb5.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure DNS forwarders
+  ansible.builtin.shell:
+    cmd: |
+      samba-tool dns zonecreate {{ inventory_hostname }} {{ domain_name }} -U administrator%{{ dc_admin_password }}
+      samba-tool dns serverinfo {{ inventory_hostname }} -U administrator%{{ dc_admin_password }}
+    creates: /var/lib/samba/bind-dns/dns-forwarder.conf
+  register: dns_config
+  when: dc_dns_enabled
+  ignore_errors: yes
+
+- name: Configure DNS forwarders via samba-tool
+  ansible.builtin.command:
+    cmd: "samba-tool dns forwarder {{ inventory_hostname }} {{ item }} -U administrator%{{ dc_admin_password }}"
+  loop: "{{ dc_dns_forwarders }}"
+  when: dns_config.changed
+  ignore_errors: yes
+  no_log: yes
+
+- name: Set DNS resolver to localhost
+  ansible.builtin.copy:
+    content: |
+      nameserver 127.0.0.1
+      search {{ domain_name }}
+    dest: /etc/resolv.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Mask systemd-resolved stub resolver
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    state: stopped
+    enabled: no
+    masked: yes
+  ignore_errors: yes
+
+- name: Enable and start Samba AD DC
+  ansible.builtin.systemd:
+    name: samba-ad-dc
+    state: started
+    enabled: yes
+    daemon_reload: yes
+
+- name: Configure firewall for AD services
+  ansible.builtin.ufw:
+    rule: allow
+    direction: in
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    comment: "{{ item.comment }}"
+  loop:
+    - { port: '53', proto: 'udp', comment: 'DNS' }
+    - { port: '53', proto: 'tcp', comment: 'DNS TCP' }
+    - { port: '88', proto: 'udp', comment: 'Kerberos' }
+    - { port: '88', proto: 'tcp', comment: 'Kerberos TCP' }
+    - { port: '135', proto: 'tcp', comment: 'RPC Endpoint Mapper' }
+    - { port: '137-138', proto: 'udp', comment: 'NetBIOS' }
+    - { port: '139', proto: 'tcp', comment: 'NetBIOS Session' }
+    - { port: '389', proto: 'tcp', comment: 'LDAP' }
+    - { port: '389', proto: 'udp', comment: 'LDAP UDP' }
+    - { port: '445', proto: 'tcp', comment: 'SMB/CIFS' }
+    - { port: '464', proto: 'tcp', comment: 'Kerberos Password Change' }
+    - { port: '464', proto: 'udp', comment: 'Kerberos Password Change' }
+    - { port: '636', proto: 'tcp', comment: 'LDAPS' }
+    - { port: '1024-5000', proto: 'tcp', comment: 'RPC Dynamic Ports' }
+    - { port: '3268-3269', proto: 'tcp', comment: 'Global Catalog' }
+    - { port: '49152-65535', proto: 'tcp', comment: 'RPC High Ports' }
+  when: dc_provision.changed
+  ignore_errors: yes
+
+- name: Create time-based snapshot marker
+  ansible.builtin.file:
+    path: "/var/log/samba-ad-dc-provisioned"
+    state: touch
+    modification_time: "{{ ansible_date_time.epoch }}"
+
+- name: Verify Kerberos ticket
+  ansible.builtin.command:
+    cmd: "kinit administrator@{{ dc_realm }} -k -t /var/lib/samba/private/krb5.keytab"
+  changed_when: false
+  register: kinit_test
+  ignore_errors: yes
+  tags: [verify]
+
+- name: Display Kerberos verification result
+  ansible.builtin.debug:
+    msg: "Kerberos authentication: {{ 'SUCCESS' if kinit_test.rc == 0 else 'FAILED - check /var/log/samba/' }}"
+  tags: [verify]
