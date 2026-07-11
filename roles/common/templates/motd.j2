@@ -1,0 +1,25 @@
+{{ '#' * 60 }}
+#                                                                          #
+#  {{ ansible_fqdn }}                                                      #
+#  {{ ansible_default_ipv4.address | default('IP N/A') }}                  #
+#                                                                          #
+#  {{ ansible_distribution }} {{ ansible_distribution_version }}           #
+#  Kernel: {{ ansible_kernel }}                                            #
+#  CPU: {{ ansible_processor_vcpus }} vCores                               #
+#  RAM: {{ (ansible_memtotal_mb / 1024) | round(1) }} GB                   #
+#  Disk: {{ ansible_mounts[0].size_total | default(0) | int / 1024**3 | round(1) }} GB  #
+#                                                                          #
+#  Environment: {{ env_type | default('production') }}                     #
+#  Managed by: Ansible Infrastructure Automation                           #
+#  Last modified: {{ ansible_date_time.iso8601 }}                          #
+#                                                                          #
+#  ACCES RESERVE AU PERSONNEL AUTORISE                                     #
+#  Toute connexion est surveillee et enregistree.                          #
+#                                                                          #
+{{ '#' * 60 }}
+
+System Information
+------------------
+Date    : {{ ansible_date_time.date }}
+Uptime  : {{ ansible_uptime_seconds | default(0) | int / 86400 | round(1) }} days
+Users   : {{ ansible_users | length }} logged in
