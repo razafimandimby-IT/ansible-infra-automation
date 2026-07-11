@@ -1,0 +1,37 @@
+---
+# Domain Controller role variables
+dc_packages:
+  - samba
+  - smbclient
+  - krb5-user
+  - krb5-config
+  - winbind
+  - libpam-winbind
+  - libnss-winbind
+  - dnsutils
+  - chrony
+  - attr
+  - acl
+  - ldb-tools
+
+dc_services_to_disable:
+  - smbd
+  - nmbd
+  - winbind
+  - systemd-resolved
+
+dc_firewall_rules:
+  - { port: '53',   proto: 'udp', comment: 'DNS' }
+  - { port: '53',   proto: 'tcp', comment: 'DNS TCP' }
+  - { port: '88',   proto: 'udp', comment: 'Kerberos' }
+  - { port: '88',   proto: 'tcp', comment: 'Kerberos TCP' }
+  - { port: '135',  proto: 'tcp', comment: 'RPC Endpoint Mapper' }
+  - { port: '389',  proto: 'tcp', comment: 'LDAP' }
+  - { port: '445',  proto: 'tcp', comment: 'SMB/CIFS' }
+  - { port: '464',  proto: 'tcp', comment: 'Kerberos Password Change' }
+  - { port: '636',  proto: 'tcp', comment: 'LDAPS' }
+
+dc_dns_records:
+  - { name: "gc._msdcs", type: "SRV", target: "{{ inventory_hostname }}", port: 3268 }
+  - { name: "_kerberos._tcp", type: "SRV", target: "{{ inventory_hostname }}", port: 88 }
+  - { name: "_ldap._tcp", type: "SRV", target: "{{ inventory_hostname }}", port: 389 }
