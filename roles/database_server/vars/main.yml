@@ -1,0 +1,30 @@
+---
+# Database Server role variables
+db_packages_postgresql:
+  - "postgresql-{{ db_version }}"
+  - "postgresql-client-{{ db_version }}"
+  - "postgresql-contrib-{{ db_version }}"
+  - "postgresql-{{ db_version }}-repack"
+  - "postgresql-{{ db_version }}-pgbackrest"
+  - postgresql-common
+  - libpq-dev
+  - python3-psycopg2
+  - pgbouncer
+
+db_packages_mysql:
+  - mysql-server
+  - mysql-client
+  - python3-mysqldb
+  - percona-toolkit
+
+db_replication_conf:
+  wal_level: "{{ db_replication.wal_level | default('replica') }}"
+  max_wal_senders: "{{ db_replication.max_wal_senders | default(5) }}"
+  wal_keep_size: 1024
+  hot_standby: "on"
+  streaming: "async"
+
+db_tuning_defaults:
+  shared_buffers: "{{ db_shared_buffers | default('1GB') }}"
+  effective_cache_size: "{{ db_effective_cache_size | default('3GB') }}"
+  maintenance_work_mem: "{{ db_maintenance_work_mem | default('256MB') }}"
