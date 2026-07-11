@@ -1,0 +1,36 @@
+# Ansible managed: {{ ansible_managed }}
+# Chrony configuration for {{ ansible_fqdn }}
+
+# NTP servers
+{% for server in ntp_servers %}
+server {{ server }}
+{% endfor %}
+
+# Stratum 2 configuration
+server 127.127.1.0 iburst
+local stratum 10
+
+# Security restrictions
+restrict default kod nomodify notrap nopeer noquery
+restrict 127.0.0.1
+restrict ::1
+
+# Allow NTP traffic from local network
+restrict 192.168.0.0 mask 255.255.0.0 nomodify notrap
+restrict 10.0.0.0 mask 255.0.0.0 nomodify notrap
+
+# Drift file
+driftfile /var/lib/chrony/drift
+
+# Logging
+logdir /var/log/chrony
+log measurements statistics tracking
+
+# Make step adjustment
+makestep 1.0 3
+
+# Enable kernel synchronization
+rtcsync
+
+# Serve time even when not synchronized
+local stratum 10
